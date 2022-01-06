@@ -2,6 +2,8 @@ import argparse
 import mindspore.nn as nn
 from src.model import Linear
 from src.dataset import create_dataset
+from easy_mindspore import value_and_grad
+from mindspore import ms_function
 
 def args_parser():
     arg_parser = argparse.ArgumentParser(description="run linear regression")
@@ -13,15 +15,24 @@ def args_parser():
     args_opt = arg_parser.parse_args()
     
     return args_opt
-def train_one_epoch(trainer, dataset, every_print=1, epoch_num=0):
+
+def train_one_epoch(net, loss_fn, optimizer, dataset, every_print=1, epoch_num=0):
     """train network in one epoch"""
+    @ms_function
+    def train_step(x, y):
+        logits = net(x)
+        loss = loss_fn(logits, y)
+        return loss, logits
+
+    grad_fn = value_and_grad(train_step, net.trainable_params(), has_aux=True)
     steps = 0
     for x, y in dataset.create_tuple_iterator():
         steps += 1
-        loss = trainer(x, y)
+        (loss, _), grads = grad_fn(x, y)
+        optimizer(grads)
         if steps % every_print == 0:
             print(f"epoch: {epoch_num}, loss: {loss.asnumpy()}")
-    
+
 def train(args):
     """train linear regression network"""
     # create dataset
@@ -32,13 +43,9 @@ def train(args):
     loss = nn.MSELoss()
     # instantiate optimizer
     optimizer = nn.SGD(net.trainable_params(), learning_rate=0.01)
-    # connect network with loss(to construct a complete computing graph)
-    net_with_loss = nn.WithLossCell(net, loss)
-    # connect network with optimizer(to construct a complete computing graph)
-    trainer = nn.TrainOneStepCell(net_with_loss, optimizer)
     # train network
     for epoch_num in range(args.epochs):
-        train_one_epoch(trainer, train_dataset, every_print=10, epoch_num=epoch_num)
+        train_one_epoch(net, loss, optimizer, train_dataset, every_print=10, epoch_num=epoch_num)
 
 if __name__ == "__main__":
     args = args_parser()
